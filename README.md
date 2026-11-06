@@ -8,8 +8,58 @@ public internet.
 ## Usage
 
 ```hcl
-# "All <region> Services In Oracle Services Network" covers the whole Oracle Services
-# Network. Use "OCI <region> Object Storage" instead if you only want Object Storage.
+module "service_gateway" {
+  source = "github.com/moveeeax/terraform-oci-service-gateway?ref=v1.2.0"
+
+  compartment_id = var.compartment_id
+  vcn_id         = var.vcn_id
+  display_name   = "prod-sgw"
+
+  # "all" = the whole Oracle Services Network, "objectstorage" = Object Storage only.
+  services = "all"
+
+  freeform_tags = {
+    Environment = "production"
+    ManagedBy   = "terraform"
+  }
+}
+
+# Route traffic for the Oracle Services Network through the gateway.
+resource "oci_core_route_table" "private" {
+  # ...
+  route_rules {
+    destination       = module.service_gateway.service_cidr_block
+    destination_type  = "SERVICE_CIDR_BLOCK"
+    network_entity_id = module.service_gateway.id
+  }
+}
+```
+
+A runnable example lives in [`examples/basic`](examples/basic).
+
+## Choosing the service set
+
+`oci_core_services` returns several entries per region, and a service gateway built
+against the wrong one is created successfully, reports `ACTIVE`, and quietly routes a
+different set of services than you intended. `services` picks the entry for you:
+
+| `services`      | Entry it resolves to (name pattern)                | Covers                           |
+|-----------------|----------------------------------------------------|----------------------------------|
+| `all`           | `All <region> Services In Oracle Services Network` | The full Oracle Services Network |
+| `objectstorage` | `OCI <region> Object Storage`                      | Object Storage only              |
+
+The module reads `oci_core_services` filtered by that name pattern and fails the plan
+unless exactly one service matches, so a renamed or duplicated entry stops the plan
+instead of granting the wrong set. The `service_cidr_block` output carries the resolved
+entry's CIDR label for route rules.
+
+### Explicit service OCIDs
+
+`service_ids` still takes service OCIDs directly, for callers that already look them up
+or need an entry `services` does not cover. Set exactly one of `services` and
+`service_ids`. When you look OCIDs up yourself, filter by name and assert a single match:
+
+```hcl
 data "oci_core_services" "all" {
   filter {
     name   = "name"
@@ -19,44 +69,15 @@ data "oci_core_services" "all" {
 }
 
 module "service_gateway" {
-  source = "github.com/moveeeax/terraform-oci-service-gateway?ref=v1.0.0"
-
-  compartment_id = var.compartment_id
-  vcn_id         = var.vcn_id
-  display_name   = "prod-sgw"
-
+  # ...
   # one() fails the plan if the filter matched zero or more than one service.
   service_ids = [one(data.oci_core_services.all.services).id]
-
-  freeform_tags = {
-    Environment = "production"
-    ManagedBy   = "terraform"
-  }
 }
 ```
 
-A runnable example lives in [`examples/basic`](examples/basic).
-
-## Choosing the right service OCID
-
-This is the one thing that is easy to get wrong and hard to notice. `oci_core_services`
-returns several entries per region, and a service gateway built against the wrong one is
-created successfully, reports `ACTIVE`, and quietly routes a different set of services
-than you intended:
-
-| Entry name                                         | Covers                          |
-|----------------------------------------------------|---------------------------------|
-| `All <region> Services In Oracle Services Network` | The full Oracle Services Network |
-| `OCI <region> Object Storage`                      | Object Storage only              |
-
-Two rules keep this honest:
-
-- **Filter by name, then assert a single match.** `data.oci_core_services.all.services` is
-  an API-ordered list; `services[0]` on an unfiltered or loosely filtered result picks an
-  arbitrary entry. `one(...)` errors instead.
-- **Pass service OCIDs, not CIDR labels.** Each element of the data source has both `id`
-  (the `ocid1.service...` OCID you want) and `cidr_block`. The module rejects anything
-  that is not a service OCID, so this fails at plan time rather than at apply.
+Each element of the data source has both `id` (the `ocid1.service...` OCID you want) and
+`cidr_block`. The module rejects anything in `service_ids` that is not a service OCID, so
+passing the CIDR label fails at plan time rather than at apply.
 
 ### A note on `block_traffic`
 
@@ -80,7 +101,8 @@ assert on it if someone flips it out of band in the console.
 | `compartment_id` | Compartment OCID (`ocid1.compartment...`, or the tenancy OCID).    | `string`       | n/a     |   yes    |
 | `vcn_id`         | VCN OCID (`ocid1.vcn...`) the service gateway belongs to.          | `string`       | n/a     |   yes    |
 | `display_name`   | Human-readable name for the service gateway.                       | `string`       | n/a     |   yes    |
-| `service_ids`    | Service OCIDs (`ocid1.service...`); non-empty and duplicate-free.  | `list(string)` | n/a     |   yes    |
+| `services`       | `"all"` or `"objectstorage"`, resolved in the module. Exclusive with `service_ids`. | `string` | `null` | no |
+| `service_ids`    | Service OCIDs (`ocid1.service...`); non-empty, duplicate-free. Exclusive with `services`. | `list(string)` | `null` | no |
 | `route_table_id` | Route table OCID (`ocid1.routetable...`). Null uses VCN default.   | `string`       | `null`  |    no    |
 | `freeform_tags`  | Free-form tags applied to the service gateway.                     | `map(string)`  | `{}`    |    no    |
 | `defined_tags`   | Defined tags applied to the gateway, keyed `namespace.key`.        | `map(string)`  | `{}`    |    no    |
@@ -94,6 +116,7 @@ assert on it if someone flips it out of band in the console.
 | `services`     | Services enabled on the service gateway.|
 | `state`        | Lifecycle state of the service gateway. |
 | `block_traffic`| Whether the gateway is dropping all traffic. |
+| `service_cidr_block` | CIDR label of the service resolved through `services`, for `SERVICE_CIDR_BLOCK` route rules. Null with `service_ids`. |
 
 ## Tests
 

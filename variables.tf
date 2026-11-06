@@ -23,28 +23,46 @@ variable "display_name" {
   type        = string
 }
 
-variable "service_ids" {
+variable "services" {
   description = <<-EOT
-    Service OCIDs the gateway routes to, taken from the `oci_core_services` data source.
-    Each entry must be a service OCID ("ocid1.service...") -- not a CIDR block, a service
-    name, or any other OCID type. Picking the wrong entry silently grants access to the
-    wrong set of services, so filter the data source by name and assert a single match
-    (see the README) instead of indexing into an unfiltered result.
+    Which Oracle Services Network set the gateway routes to, resolved inside the
+    module from the `oci_core_services` data source: "all" picks "All <region>
+    Services In Oracle Services Network", "objectstorage" picks "OCI <region>
+    Object Storage". The plan fails unless exactly one service matches. Set this
+    or `service_ids`, not both.
   EOT
-  type        = list(string)
+  type        = string
+  default     = null
 
   validation {
-    condition     = length(var.service_ids) > 0
-    error_message = "At least one service OCID must be provided."
+    condition     = var.services == null ? true : contains(["all", "objectstorage"], var.services)
+    error_message = "services must be \"all\" (the whole Oracle Services Network) or \"objectstorage\" (Object Storage only)."
+  }
+}
+
+variable "service_ids" {
+  description = <<-EOT
+    Explicit service OCIDs the gateway routes to, taken from the `oci_core_services`
+    data source. Each entry must be a service OCID ("ocid1.service...") -- not a CIDR
+    block, a service name, or any other OCID type. Prefer `services`, which does the
+    lookup inside the module; use this when you need an OCID that `services` does not
+    cover. Set this or `services`, not both.
+  EOT
+  type        = list(string)
+  default     = null
+
+  validation {
+    condition     = var.service_ids == null ? true : length(var.service_ids) > 0
+    error_message = "service_ids must be null or contain at least one service OCID."
   }
 
   validation {
-    condition     = alltrue([for s in var.service_ids : can(regex("^ocid1\\.service\\.", s))])
+    condition     = var.service_ids == null ? true : alltrue([for s in var.service_ids : can(regex("^ocid1\\.service\\.", s))])
     error_message = "Every entry in service_ids must be a service OCID starting with \"ocid1.service.\". A CIDR block, service name, or other OCID type will not work."
   }
 
   validation {
-    condition     = length(distinct(var.service_ids)) == length(var.service_ids)
+    condition     = var.service_ids == null ? true : length(distinct(var.service_ids)) == length(var.service_ids)
     error_message = "service_ids must not contain duplicates. The gateway's services are a set, so a repeated OCID is silently collapsed instead of adding a second service."
   }
 }

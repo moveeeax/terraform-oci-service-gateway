@@ -6,6 +6,21 @@ All notable changes to this module are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `services` input (`"all"` or `"objectstorage"`): the module reads
+  `oci_core_services`, filters it by the "All <region> Services In Oracle Services
+  Network" or "OCI <region> Object Storage" name pattern and fails the plan unless
+  exactly one service matches, so callers no longer need their own data source.
+- `service_cidr_block` output with the resolved service's CIDR label, for route
+  rules with `destination_type = "SERVICE_CIDR_BLOCK"`.
+
+### Changed
+
+- `service_ids` is now optional (default `null`) and mutually exclusive with
+  `services`; exactly one of the two must be set. Existing callers that pass
+  `service_ids` are unaffected.
+
 ### Changed
 
 - CI: bump actions to their current majors, pin tool versions, and restrict the

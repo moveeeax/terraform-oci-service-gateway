@@ -1,26 +1,16 @@
 provider "oci" {}
 
-# Look up the "All <region> Services In Oracle Services Network" entry, which covers the
-# whole Oracle Services Network. Use "OCI <region> Object Storage" instead if you only
-# want Object Storage -- the two are different service sets and the gateway will happily
-# be created with either.
-data "oci_core_services" "all" {
-  filter {
-    name   = "name"
-    values = ["^All .* Services In Oracle Services Network$"]
-    regex  = true
-  }
-}
-
 module "service_gateway" {
   source = "../.."
 
   compartment_id = var.compartment_id
   vcn_id         = var.vcn_id
   display_name   = "example-sgw"
-  # one() errors if the filter matched anything other than exactly one service, rather
-  # than silently picking whatever the API happened to return first.
-  service_ids = [one(data.oci_core_services.all.services).id]
+
+  # "all" routes to the whole Oracle Services Network; "objectstorage" to Object
+  # Storage only. The module looks the service up in the current region and fails
+  # the plan unless exactly one entry matches.
+  services = "all"
 
   freeform_tags = {
     Environment = "sandbox"
@@ -40,4 +30,9 @@ variable "vcn_id" {
 
 output "service_gateway_id" {
   value = module.service_gateway.id
+}
+
+# Destination for a route rule with destination_type = "SERVICE_CIDR_BLOCK".
+output "service_cidr_block" {
+  value = module.service_gateway.service_cidr_block
 }
