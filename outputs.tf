@@ -25,3 +25,8 @@ output "block_traffic" {
   description = "Whether the gateway is blocking all traffic. True means the gateway exists but passes nothing."
   value       = oci_core_service_gateway.this.block_traffic
 }
+
+output "service_cidr_block" {
+  description = "Service CIDR label of the service resolved through `services` (for example \"all-iad-services-in-oracle-services-network\"), for route rules with destination_type SERVICE_CIDR_BLOCK. Null when service_ids is used."
+  value       = local.resolve_services ? local.resolved_service.cidr_block : null
+}
